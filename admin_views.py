@@ -624,7 +624,15 @@ def display_survey_data(survey_id):
             
         survey_name = survey_name[0]
         st.subheader(f"بيانات الاستبيان: {survey_name}")
-
+        if st.button("📊 تصدير إلى Google Sheets", key=f"export_gsheet_{survey_id}"):
+                    sheet_name = st.text_input("أدخل اسم ملف Google Sheets", 
+                                             value=f"استبيانات_{datetime.now().strftime('%Y%m%d')}")
+                    
+                    if sheet_name and st.button("تأكيد التصدير"):
+                        if export_to_google_sheet(survey_id, sheet_name):
+                            st.success(f"تم تصدير البيانات بنجاح إلى ملف Google Sheets: {sheet_name}")
+                        else:
+                            st.error("فشل في تصدير البيانات")
         # الحصول على عدد الإجابات
         total_responses = conn.execute(
             "SELECT COUNT(*) FROM Responses WHERE survey_id = ?", 
