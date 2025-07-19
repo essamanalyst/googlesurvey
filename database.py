@@ -852,6 +852,113 @@ def has_completed_survey_today(user_id: int, survey_id: int) -> bool:
             AND DATE(submission_date) = DATE('now')
             LIMIT 1
         ''', (user_id, survey_id))
+
+
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+
+def connect_to_google_sheets():
+    """الاتصال بـ Google Sheets باستخدام مصادقة مبسطة"""
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", 
+                "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name("gsheets_credentials.json", scope)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.error(f"خطأ في الاتصال بجوجل شيتس: {str(e)}")
+        return None
+
+def export_to_google_sheet(survey_id: int, sheet_name: str):
+    """تصدير بيانات استبيان إلى Google Sheet"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        # الحصول على بيانات الاستبيان
+        survey_name = conn.execute(
+            "SELECT survey_name FROM Surveys WHERE survey_id=?", 
+            (survey_id,)
+        ).fetchone()[0]
+        
+        # الحصول على جميع الإجابات
+        responses = conn.execute('''
+            SELECT r.response_id, u.username, ha.admin_name, g.governorate_name,
+                   r.submission_date, r.is_completed
+            FROM Responses r
+            JOIN Users u ON r.user_id = u.user_id
+            JOIN HealthAdministrations ha ON r.region_id = ha.admin_id
+            JOIN Governorates g ON ha.governorate_id = g.governorate_id
+            WHERE r.survey_id = ?
+            ORDER BY r.submission_date DESC
+        ''', (survey_id,)).fetchall()
+        
+        if not responses:
+            st.warning("لا توجد بيانات للتصدير")
+            return False
+            
+        # تحضير البيانات للتصدير
+        data = []
+        for response in responses:
+            # الحصول على تفاصيل الإجابة
+            details = conn.execute('''
+                SELECT sf.field_label, rd.answer_value
+                FROM Response_Details rd
+                JOIN Survey_Fields sf ON rd.field_id = sf.field_id
+                WHERE rd.response_id = ?
+                ORDER BY sf.field_order
+            ''', (response[0],)).fetchall()
+            
+            # إنشاء سجل واحد لكل إجابة
+            record = {
+                "ID": response[0],
+                "المستخدم": response[1],
+                "الإدارة الصحية": response[2],
+                "المحافظة": response[3],
+                "تاريخ التقديم": response[4],
+                "الحالة": "مكتملة" if response[5] else "مسودة"
+            }
+            
+            # إضافة حقول الاستبيان
+            for field in details:
+                record[field[0]] = field[1]
+            
+            data.append(record)
+        
+        # تحويل إلى DataFrame
+        df = pd.DataFrame(data)
+        
+        # الاتصال بجوجل شيتس
+        client = connect_to_google_sheets()
+        if not client:
+            return False
+            
+        try:
+            # إنشاء أو فتح ملف الجداول
+            sheet = client.open(sheet_name)
+        except gspread.SpreadsheetNotFound:
+            # إذا لم يوجد الملف، يتم إنشاؤه
+            sheet = client.create(sheet_name)
+            
+        # إنشاء أو تحديث ورقة العمل
+        try:
+            worksheet = sheet.worksheet(survey_name)
+        except gspread.WorksheetNotFound:
+            worksheet = sheet.add_worksheet(title=survey_name, rows=100, cols=20)
+        
+        # تحديث البيانات
+        worksheet.clear()
+        worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء التصدير: {str(e)}")
+        return False
+    finally:
+        conn.close()
+
+
+        
         return cursor.fetchone() is not None
     except sqlite3.Error as e:
         st.error(f"حدث خطأ في التحقق من إكمال الاستبيان: {str(e)}")
