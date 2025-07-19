@@ -180,7 +180,15 @@ def view_survey_responses(survey_id: int, governorate_id: int):
         ).fetchone()
         
         st.subheader(f"إجابات استبيان {survey[0]}")
-        
+        if st.button("📊 تصدير إلى Google Sheets", key=f"export_gsheet_{survey_id}"):
+            sheet_name = st.text_input("أدخل اسم ملف Google Sheets", 
+                                     value=f"استبيانات_{survey[0]}_{datetime.now().strftime('%Y%m%d')}")
+            
+            if sheet_name and st.button("تأكيد التصدير"):
+                if export_to_google_sheet(survey_id, sheet_name):
+                    st.success(f"تم تصدير البيانات بنجاح إلى ملف Google Sheets: {sheet_name}")
+                else:
+                    st.error("فشل في تصدير البيانات")
         # الحصول على الإجابات للمحافظة فقط
         responses = conn.execute('''
             SELECT r.response_id, u.username, ha.admin_name, 
